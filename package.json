@@ -1,0 +1,24 @@
+{
+  "name": "dynamodb-subscriber",
+  "description": "",
+  "version": "0.0.0",
+  "author": "José F. Romaniello <jfromaniello@gmail.com> (http://joseoncode.com)",
+  "repository": {
+    "url": "git://github.com/jfromaniello/dynamodb-subscriber.git"
+  },
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "dependencies": {
+    "async": "~2.0.1",
+    "aws-sdk": "~2.4.12",
+    "ms": "~0.7.1",
+    "tempus-fugit": "~2.3.1"
+  },
+  "devDependencies": {
+    "aws-sdk-mock": "~1.4.0",
+    "chai": "~3.5.0",
+    "mocha": "~2.2.5"
+  }
+}
