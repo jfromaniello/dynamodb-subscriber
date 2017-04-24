@@ -11,10 +11,12 @@ class DynamodDBSubscriber extends EventEmitter {
   constructor (params) {
     super();
 
-    if (!params.arn) {
-      throw new Error('StreamArn is required');
+    if (!params.arn && !params.table) {
+      throw new Error('arn or table are required');
     }
 
+    this._region = params.region;
+    this._table = params.table;
     this._streamArn = params.arn;
 
     if (typeof params.interval === 'number') {
@@ -82,7 +84,10 @@ class DynamodDBSubscriber extends EventEmitter {
           return callback(err);
         }
         if (data.Records && data.Records.length > 0) {
-          data.Records.forEach(r => this.emit('record', r));
+          data.Records.forEach(r => {
+            const key = r.dynamodb && r.dynamodb.Keys && aws.DynamoDB.Converter.output({M: r.dynamodb.Keys});
+            this.emit('record', r, key);
+          });
         }
         shard.iterator = data.NextShardIterator;
         callback();
@@ -111,16 +116,57 @@ class DynamodDBSubscriber extends EventEmitter {
   }
 
   start() {
-    this._getOpenShards((err, shards) => {
-      if (err) {
-        return this.emit('error', err);
-      }
-      this._shards = shards;
+    async.series([
+      //try get stream arn with dynamodb.describeTable
+      cb => {
+        if (this._streamArn) { return cb(); }
+        const dynamo = new aws.DynamoDB({ region: this._region });
+        dynamo.describeTable({ TableName: this._table }, (err, tableDescription) => {
+          if (err) {
+            return cb();
+          }
+          if (tableDescription && tableDescription.Table && tableDescription.Table.LatestStreamArn) {
+            this._streamArn = tableDescription.Table.LatestStreamArn;
+          }
+          cb();
+        });
+      },
 
-      this._job = schedule({
-        millisecond: this._interval,
-        start: Date.now()
-      }, this._process.bind(this));
+      //try get stream arn  with dynamodbstream.listStream
+      cb => {
+        if (this._streamArn) { return cb(); }
+        this._ddbStream({ TableName: this._table }, (err, result) => {
+          if (err) {
+            return cb(new Error(`Cannot retrieve the stream arn of ${this._table}: ` + err.message));
+          }
+          if (result && result.Streams && result.Streams[0]) {
+            this._streamArn = result.Streams[0].StreamArn;
+          }
+          cb();
+        });
+      },
+
+      //start the job
+      cb => {
+        this._getOpenShards((err, shards) => {
+          if (err) {
+            return cb(err);
+          }
+
+          this._shards = shards;
+
+          this._job = schedule({
+            millisecond: this._interval,
+            start: Date.now()
+          }, this._process.bind(this));
+
+          cb();
+        });
+      }
+    ], (err) => {
+      if (err) {
+        this.emit('error', err);
+      }
     });
   }
 

@@ -18,8 +18,11 @@ const subscriber = new DynamoDBSubscriber({
   interval: '1s',
 });
 
-subscriber.on('record', (record) => {
+subscriber.on('record', (record, keys) => {
+  console.log('entire record:')
   console.dir(record)
+  console.log('key:')
+  console.dir(keys)
 });
 
 subscriber.start();
@@ -28,6 +31,7 @@ subscriber.start();
 Example output:
 
 ```javascript
+entire record:
 { eventID: 'xxxxx',
   eventName: 'INSERT',
   eventVersion: '1.1',
@@ -39,6 +43,19 @@ Example output:
      SequenceNumber: '4324698400043243243243246',
      SizeBytes: 35,
      StreamViewType: 'KEYS_ONLY' } }
+
+key:
+{ name: 'YYYYZZZ'
+}
+```
+
+You can also initialize with the name of the table like this:
+
+```javascript
+const subscriber = new DynamoDBSubscriber({
+  table: 'my-dynamodb-table',
+  interval: '1s',
+});
 ```
 
 The constructor parameters are:
@@ -69,6 +86,19 @@ const dynamoDbStream = new DynamoDBStream({
 
 dynamoDbStream.pipe(stringify).pipe(process.stdout);
 ```
+
+## IAM
+
+In order to use this module you need the following permissions on the stream resource:
+
+-  dynamodb:DescribeStream
+-  dynamodb:GetShardIterator
+-  dynamodb:GetRecords
+
+Additionally, if you initialize with table name instead of arn, we need either of these two:
+
+-  dynamodb:ListStreams on the stream arn
+-  dynamodb:DescribeTable on the table itself
 
 ## License
 

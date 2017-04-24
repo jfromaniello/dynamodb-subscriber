@@ -1,31 +1,25 @@
 const AWS = require('aws-sdk-mock');
 const assert = require('chai').assert;
-var DynamoDBSubscriber = require('../index');
-
-// AWS.mock('DynamoDB', 'putItem', function (params, callback){
-//   callback(null, "successfully put item in database");
-// });
-
-// AWS.mock('SNS', 'publish', 'test-message');
-
-// /**
-//     TESTS
-// **/
-
-// AWS.restore('SNS', 'publish');
-// AWS.restore('DynamoDB');
-// // or AWS.restore(); this will restore all the methods and services
+const DynamoDBSubscriber = require('../index');
 
 describe('DynamodbSubscriber', function () {
   afterEach(function () {
-    AWS.restore('DynamoDBStreams');
+    AWS.restore();
   });
 
-  describe('subscriber._getOpenShards ', function () {
-    it('should work', function (done) {
+  describe('subscribing to stream with 1 record', function() {
+    const arn = 'urn:test:test';
+    const ShardId = '456';
+    const ShardIterator = 'iterator-123';
+
+    before(function() {
       AWS.mock('DynamoDBStreams', 'describeStream', (params, callback) => {
-        assert.equal(params.StreamArn, 'urn:testtest');
-        assert.equal(params.ExclusiveStartShardId, undefined);
+        if (params.StreamArn !== arn) {
+          return callback(new Error(`unknown stream ${params.StreamArn}`));
+        }
+        if (params.ExclusiveStartShardId !== undefined) {
+          return callback(new Error(`unexpected ${params.ExclusiveStartShardId}`));
+        }
         callback(null, {
           StreamDescription: {
             Shards: [
@@ -37,55 +31,121 @@ describe('DynamodbSubscriber', function () {
       });
 
       AWS.mock('DynamoDBStreams', 'getShardIterator', (params, callback) => {
-        callback(null, { ShardIterator: '123' });
+        if (params.ShardId !== ShardId) {
+          return callback(new Error(`unknown ShardId ${params.ShardId}`));
+        }
+        callback(null, { ShardIterator });
       });
 
-      var subscriber = new DynamoDBSubscriber({ arn: 'urn:testtest' });
+      const record = {
+        dynamodb: {
+          ApproximateCreationDateTime: new Date(),
+          Keys: {
+            foo: { S: 'bar' },
+            baz: { S: 'bax' }
+          },
+          SequenceNumber: '1883831300000000005697243583',
+          SizeBytes: 38,
+          StreamViewType: 'KEYS_ONLY'
+        }
+      };
 
-      subscriber._getOpenShards((err, shards) => {
-        if (err) { return done(err); }
-        assert.equal(shards.length, 1);
-        assert.isOk(shards.every(s => !s.EndingSequenceNumber && s.iterator === '123'));
+      AWS.mock('DynamoDBStreams', 'getRecords', (params, callback) => {
+        if (params.ShardIterator !== ShardIterator) {
+          return callback(new Error(`unknown ShardId ${params.ShardId}`));
+        }
+        callback(null, { Records: [ record ], NextShardIterator: 'iterator-456' });
+      });
+    });
+
+    it('should return the record', function (done) {
+      const subscriber = new DynamoDBSubscriber({ arn: arn, interval: 100 });
+
+      subscriber.once('record', (r, key) => {
+        assert.property(r, 'dynamodb');
+        assert.deepEqual(key.foo, 'bar');
+        assert.deepEqual(key.baz, 'bax');
+        subscriber.stop();
         done();
-      });
-
+      }).start();
     });
   });
 
 
-  it('should work', function (done) {
-    AWS.mock('DynamoDBStreams', 'describeStream', (params, callback) => {
-      assert.equal(params.StreamArn, 'urn:testtest');
-      assert.equal(params.ExclusiveStartShardId, undefined);
-      callback(null, {
-        StreamDescription: {
-          Shards: [
-            { ShardId: '123', SequenceNumberRange: { EndingSequenceNumber: '1234' } },
-            { ShardId: '456', SequenceNumberRange: { } }
-          ]
+  describe('subscribing to stream by tablename with 1 record', function() {
+    const arn = 'urn:test:test';
+    const ShardId = '456';
+    const ShardIterator = 'iterator-123';
+    const TableName = 'credentials';
+
+    before(function() {
+      AWS.mock('DynamoDB', 'describeTable', (params, callback) => {
+        if (params.TableName !== TableName) {
+          return callback(new Error(`unnknown table ${params.table}`));
         }
+        return callback(null, {
+          Table: {
+            LatestStreamArn: arn
+          }
+        });
+      });
+
+      AWS.mock('DynamoDBStreams', 'describeStream', (params, callback) => {
+        if (params.StreamArn !== arn) {
+          return callback(new Error(`unknown stream ${params.StreamArn}`));
+        }
+        if (params.ExclusiveStartShardId !== undefined) {
+          return callback(new Error(`unexpected ${params.ExclusiveStartShardId}`));
+        }
+        callback(null, {
+          StreamDescription: {
+            Shards: [
+              { ShardId: '123', SequenceNumberRange: { EndingSequenceNumber: '1234' } },
+              { ShardId: '456', SequenceNumberRange: { } }
+            ]
+          }
+        });
+      });
+
+      AWS.mock('DynamoDBStreams', 'getShardIterator', (params, callback) => {
+        if (params.ShardId !== ShardId) {
+          return callback(new Error(`unknown ShardId ${params.ShardId}`));
+        }
+        callback(null, { ShardIterator });
+      });
+
+      const record = {
+        dynamodb: {
+          ApproximateCreationDateTime: new Date(),
+          Keys: {
+            foo: { S: 'bar' },
+            baz: { S: 'bax' }
+          },
+          SequenceNumber: '1883831300000000005697243583',
+          SizeBytes: 38,
+          StreamViewType: 'KEYS_ONLY'
+        }
+      };
+
+      AWS.mock('DynamoDBStreams', 'getRecords', (params, callback) => {
+        if (params.ShardIterator !== ShardIterator) {
+          return callback(new Error(`unknown ShardId ${params.ShardId}`));
+        }
+        callback(null, { Records: [ record ], NextShardIterator: 'iterator-456' });
       });
     });
 
-    AWS.mock('DynamoDBStreams', 'getShardIterator', (params, callback) => {
-      assert.equal(params.ShardId, '456');
-      callback(null, { ShardIterator: 'iterator-123' });
+    it('should return the record', function (done) {
+      const subscriber = new DynamoDBSubscriber({ table: TableName, interval: 100 });
+
+      subscriber.once('record', (r, key) => {
+        assert.property(r, 'dynamodb');
+        assert.deepEqual(key.foo, 'bar');
+        assert.deepEqual(key.baz, 'bax');
+        subscriber.stop();
+        done();
+      }).start();
     });
-
-    const record = {};
-
-    AWS.mock('DynamoDBStreams', 'getRecords', (params, callback) => {
-      assert.equal(params.ShardIterator, 'iterator-123');
-      callback(null, { Records: [ record ], NextShardIterator: 'iterator-456' });
-    });
-
-    const subscriber = new DynamoDBSubscriber({ arn: 'urn:testtest', interval: 100 });
-
-    subscriber.once('record', (r) => {
-      assert.deepEqual(r, record);
-      subscriber.stop();
-      done();
-    }).start();
   });
 
 
