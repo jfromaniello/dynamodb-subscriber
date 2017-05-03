@@ -135,7 +135,7 @@ class DynamodDBSubscriber extends EventEmitter {
       //try get stream arn  with dynamodbstream.listStream
       cb => {
         if (this._streamArn) { return cb(); }
-        this._ddbStream({ TableName: this._table }, (err, result) => {
+        this._ddbStream.listStreams({ TableName: this._table }, (err, result) => {
           if (err) {
             return cb(new Error(`Cannot retrieve the stream arn of ${this._table}: ` + err.message));
           }
