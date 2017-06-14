@@ -5,7 +5,7 @@ const EventEmitter = require('events').EventEmitter;
 const schedule = require('tempus-fugit').schedule;
 const ms = require('ms');
 const async = require('async');
-
+const debug = require('debug')('DynamodDBSubscriber');
 
 class DynamodDBSubscriber extends EventEmitter {
   constructor (params) {
@@ -35,6 +35,7 @@ class DynamodDBSubscriber extends EventEmitter {
     const shards = [];
     async.doWhilst(
       (cb) => {
+        debug('stream.describeStream (start) Shard: %s, ExclusiveStartShardId: %s', this._streamArn, LastEvaluatedShardId);
         this._ddbStream.describeStream({
           StreamArn: this._streamArn,
           ExclusiveStartShardId: LastEvaluatedShardId
@@ -47,15 +48,18 @@ class DynamodDBSubscriber extends EventEmitter {
           //filter closed shards.
           const openShards = data.StreamDescription.Shards
                   .filter(s => !s.SequenceNumberRange.EndingSequenceNumber);
+          debug('stream.describeStream (end) Open Shards: %d', openShards.length);
 
           async.map(openShards, (shard, cb) => {
+            debug('stream.getShardIterator (start) ShardId: %s', openShards.length);
 
-           this._ddbStream.getShardIterator({
+            this._ddbStream.getShardIterator({
               StreamArn: this._streamArn,
               ShardId: shard.ShardId,
               ShardIteratorType: 'LATEST'
             }, (err, data) => {
               if (err) { return cb(err); }
+              debug('stream.getShardIterator (end) Has ShardIterator? %s', !!data.ShardIterator);
               shard.iterator = data.ShardIterator;
               cb(null, shard);
             });
@@ -78,11 +82,20 @@ class DynamodDBSubscriber extends EventEmitter {
   }
 
   _process (job) {
+    debug('_process (start) Shards: %d', this._shards.length);
+
     async.each(this._shards, (shard, callback) => {
+      debug('stream.getRecords (start) Shard: %s', shard.ShardId);
       this._ddbStream.getRecords({ ShardIterator: shard.iterator }, (err, data) => {
         if (err) {
           return callback(err);
         }
+
+        debug('stream.getRecords (end) Shard: %s, Records: %d, Has NextShardIterator? %s',
+            shard.ShardId,
+            data.Records.length,
+            !!data.NextShardIterator);
+
         if (data.Records && data.Records.length > 0) {
           data.Records.forEach(r => {
             const key = r.dynamodb && r.dynamodb.Keys && aws.DynamoDB.Converter.output({M: r.dynamodb.Keys});
@@ -101,6 +114,7 @@ class DynamodDBSubscriber extends EventEmitter {
       //we need to fetch the openshards again and
       //process again.
       if (this._shards.some(s => !s.iterator)) {
+        debug('Some shards are closed retrieving the list of shards.');
         delete this._shards;
         return this._getOpenShards((err, shards) => {
           if (err) {

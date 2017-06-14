@@ -13,6 +13,7 @@
   "dependencies": {
     "async": "~2.0.1",
     "aws-sdk": "^2.45.0",
+    "debug": "^2.6.8",
     "ms": "~0.7.1",
     "tempus-fugit": "~2.3.1"
   },
