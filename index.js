@@ -113,8 +113,8 @@ class DynamodDBSubscriber extends EventEmitter {
       //if some shard does not longer has an iterator
       //we need to fetch the openshards again and
       //process again.
-      if (this._shards.some(s => !s.iterator)) {
-        debug('Some shards are closed retrieving the list of shards.');
+      if (this._shards.length === 0 || this._shards.some(s => !s.iterator)) {
+        debug('Some or all shards are closed retrieving the list of shards.');
         delete this._shards;
         return this._getOpenShards((err, shards) => {
           if (err) {
